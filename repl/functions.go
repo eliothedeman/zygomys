@@ -775,6 +775,9 @@ func AllBuiltinFunctions() map[string]GlispUserFunction {
 // CoreFunctions returns all of the core logic
 func CoreFunctions() map[string]GlispUserFunction {
 	return map[string]GlispUserFunction{
+		"import":     ImportFunction,
+		"export":     ExportFunction,
+		"pkg":        PackageFunction,
 		"<":          CompareFunction,
 		">":          CompareFunction,
 		"<=":         CompareFunction,

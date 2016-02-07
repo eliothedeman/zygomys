@@ -25,6 +25,11 @@ type SexpReflect reflect.Value
 type SexpError struct {
 	error
 }
+
+func NewSexpError(e error) SexpError {
+	return SexpError{e}
+}
+
 type SexpSentinel int
 type SexpClosureEnv Scope
 

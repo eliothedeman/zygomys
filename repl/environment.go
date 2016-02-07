@@ -23,8 +23,8 @@ type Glisp struct {
 	linearstack *Stack
 
 	// loopstack: let break and continue find the nearest enclosing loop.
-	loopstack *Stack
-
+	loopstack   *Stack
+	packages    map[string]*SexpPackage
 	symtable    map[string]int
 	revsymtable map[int]string
 	builtins    map[int]*SexpFunction
@@ -49,13 +49,21 @@ const StackStackSize = 5
 const LoopStackSize = 5
 
 func NewGlisp() *Glisp {
-	return NewGlispWithFuncs(AllBuiltinFunctions())
+	return NewGlispWithFuncs(CoreFunctions())
 }
 
 // NewGlispSandbox returns a new *Glisp instance that does not allow the
 // user to get to the outside world
 func NewGlispSandbox() *Glisp {
-	return NewGlispWithFuncs(SandboxSafeFunctions())
+	return NewGlispWithFuncs(CoreFunctions())
+}
+
+func StdLib() map[string]*SexpPackage {
+	return map[string]*SexpPackage{
+		"strings":  PackageFromFuncMap("strings", StrFunctions()),
+		"encoding": PackageFromFuncMap("encoding", EncodingFunctions()),
+		"system":   PackageFromFuncMap("system", SystemFunctions()),
+	}
 }
 
 // NewGlispWithFuncs returns a new *Glisp instance with access to only the given builtin functions
@@ -75,6 +83,7 @@ func NewGlispWithFuncs(funcs map[string]GlispUserFunction) *Glisp {
 	env.macros = make(map[int]*SexpFunction)
 	env.symtable = make(map[string]int)
 	env.revsymtable = make(map[int]string)
+	env.packages = StdLib()
 	env.nextsymbol = 1
 	env.before = []PreHook{}
 	env.after = []PostHook{}
@@ -277,14 +286,13 @@ func (env *Glisp) CallUserFunction(
 	var wasPanic bool
 	var recovered interface{}
 	tr := make([]byte, 16384)
-	trace := &tr
 	res, err := func() (Sexp, error) {
 		defer func() {
 			recovered = recover()
 			if recovered != nil {
 				wasPanic = true
-				nbyte := runtime.Stack(*trace, false)
-				*trace = (*trace)[:nbyte]
+				nbyte := runtime.Stack(tr, false)
+				tr = tr[:nbyte]
 			}
 		}()
 
@@ -294,7 +302,7 @@ func (env *Glisp) CallUserFunction(
 	if wasPanic {
 		err = fmt.Errorf("CallUserFunction caught panic during call of "+
 			"'%s': '%v'\n stack trace:\n%v\n",
-			name, recovered, string(*trace))
+			name, recovered, string(tr))
 	}
 	if err != nil {
 		return 0, errors.New(

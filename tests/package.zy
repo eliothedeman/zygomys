@@ -1,0 +1,13 @@
+(def hello (pkg "hello"))
+(defn world []
+	"world")
+
+(export hello world)
+
+(import "hello")
+
+(assert (== (hello/world) "world"))
+
+(import "strings")
+
+(println (strings/split "hello world" " "))

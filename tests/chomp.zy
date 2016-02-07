@@ -1,3 +1,4 @@
+(import "strings")
 (def s `hi
 `)
-(assert (== (len (chomp s)) 2))
+(assert (== (len (strings/chomp s)) 2))
