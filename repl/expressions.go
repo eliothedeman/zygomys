@@ -7,10 +7,6 @@ import (
 	"strings"
 )
 
-type Sexp interface {
-	SexpString() string
-}
-
 type SexpPair struct {
 	Head Sexp
 	Tail Sexp
