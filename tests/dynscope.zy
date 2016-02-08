@@ -1,7 +1,9 @@
+(import "strings")
+
 (def x 1)
 (def g_saw_x 0)
 (def f_after_g_sees_x 0)
-(defn g [] (printf "orig g x=%v\n" x) (set g_saw_x x) (set x 2) )
+(defn g [] (strings/printf "orig g x=%v\n" x) (set g_saw_x x) (set x 2) )
 (defn f [] (let [x 3] (g) (set f_after_g_sees_x x)))
 (f)
 

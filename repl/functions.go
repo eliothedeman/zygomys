@@ -849,16 +849,16 @@ func CoreFunctions() map[string]GlispUserFunction {
 		"stop":       StopFunction,
 		"joinsym":    JoinSymFunction,
 		"GOOS":       GOOSFunction,
+		"println":    PrintFunction,
+		"print":      PrintFunction,
 	}
 }
 
 func StrFunctions() map[string]GlispUserFunction {
 	return map[string]GlispUserFunction{
 		"nsplit": SplitStringOnNewlinesFunction, "split": SplitStringFunction,
-		"chomp":   StringUtilFunction,
-		"trim":    StringUtilFunction,
-		"println": PrintFunction,
-		"print":   PrintFunction,
+		"chomp":   ChompFunction,
+		"trim":    TrimFunction,
 		"printf":  PrintFunction,
 		"raw2str": RawToStringFunction,
 		"str2sym": Str2SymFunction,

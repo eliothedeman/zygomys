@@ -1,5 +1,6 @@
 ;; dotcalls to user functions and sexp functions
 ;; should work
+(import "strings")
 (.a = 4) ;; leaving 4 on datastack??
 (assert (== a 4))
 
@@ -7,7 +8,7 @@
 (assert (== v 10))
 
 (def greet "hello")
-(defn g [b] (let [togeth (concat "say: " b)] (printf "g says %v\n" togeth) togeth))
+(defn g [b] (let [togeth (concat "say: " b)] (strings/printf "g says %v\n" togeth) togeth))
 (g "99999 whatsup")
 
 (def ggg (.greet g))

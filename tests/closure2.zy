@@ -1,12 +1,15 @@
 ;; indendent invocations of same closure
 ;; should each get their own scope for that instantiation
+
+(import "system")
+(import "strings")
 (defn new-closure [sym] (let* [a 1
-                           f (fn [addme] (set a (+ a addme)) (printf "a is now %v\n" a) a)] f))
+                           f (fn [addme] (set a (+ a addme)) (strings/printf "a is now %v\n" a) a)] f))
 (def g (new-closure 'hello_g))
-(_closdump g)
+(system/_closdump g)
 (def h (new-closure 'hello_h))
-(_closdump h)
-(_closdump g) ;; showing hello_h arg!!!
+(system/_closdump h)
+(system/_closdump g) ;; showing hello_h arg!!!
 (assert (== (g 1) 2))
 ;; if they are mistakenly sharing the same closure variables.
 ;; then the increment on g will have impacted h as well.
@@ -38,6 +41,6 @@
 
 (defn m [inp] (let* [a 2]
                     (let* [b 12]
-                          (defn q [] (cond (!= 0 inp) (set a inp) ()) (printf "a is now %v\n" a)) q)))
+                          (defn q [] (cond (!= 0 inp) (set a inp) ()) (system/printf "a is now %v\n" a)) q)))
 
 

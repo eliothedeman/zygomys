@@ -33,7 +33,7 @@ func AppendStr(str SexpStr, expr Sexp) (SexpStr, error) {
 	return str + SexpStr(chr), nil
 }
 
-func StringUtilFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
+func ChompFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	if len(args) != 1 {
 		return SexpNull, WrongNargs
 	}
@@ -45,15 +45,24 @@ func StringUtilFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		return SexpNull, fmt.Errorf("string required, got %T", s)
 	}
 
-	switch name {
-	case "chomp":
-		n := len(s)
-		if n > 0 && s[n-1] == '\n' {
-			return SexpStr(s[:n-1]), nil
-		}
-		return SexpStr(s), nil
-	case "trim":
-		return SexpStr(strings.TrimSpace(s)), nil
+	n := len(s)
+	if n > 0 && s[n-1] == '\n' {
+		return SexpStr(s[:n-1]), nil
 	}
-	return SexpNull, fmt.Errorf("unrecognized command '%s'", name)
+	return SexpStr(s), nil
+}
+
+func TrimFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
+	if len(args) != 1 {
+		return SexpNull, WrongNargs
+	}
+	var s string
+	switch str := args[0].(type) {
+	case SexpStr:
+		s = string(str)
+	default:
+		return SexpNull, fmt.Errorf("string required, got %T", s)
+	}
+
+	return SexpStr(strings.TrimSpace(s)), nil
 }

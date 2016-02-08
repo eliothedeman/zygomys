@@ -1,6 +1,8 @@
 ;; illustrates problem with dynamic scope. from
 ;; https://courses.cs.washington.edu/courses/cse341/09wi/general-concepts/scoping.html
 ;; 
+
+(import "system")
 (defn mymap [f s]
   (cond (null? s) ()
         (cons (f (car s)) (mymap f (cdr s)))))
@@ -28,8 +30,8 @@
 
 (def r (h 2))
 (def t (r 10))
-(_closdump r) 
-(_closdump t)
+(system/_closdump r) 
+(system/_closdump t)
 
 (defn f [] (let* [y 3 g (fn [] (+ y 1))] g))
 (def a (f))
