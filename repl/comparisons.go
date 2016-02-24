@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-func signumFloat(f SexpFloat) int {
+func signumFloat(f float64) int {
 	if f > 0 {
 		return 1
 	}
@@ -16,7 +16,7 @@ func signumFloat(f SexpFloat) int {
 	return 0
 }
 
-func signumInt(i SexpInt) int {
+func signumInt(i int64) int {
 	if i > 0 {
 		return 1
 	}
@@ -28,25 +28,25 @@ func signumInt(i SexpInt) int {
 
 func compareFloat(f SexpFloat, expr Sexp) (int, error) {
 	switch e := expr.(type) {
-	case SexpInt:
-		return signumFloat(f - SexpFloat(e)), nil
+	case *SexpInt:
+		return signumFloat(f.Val - float64(e.Val)), nil
 	case SexpFloat:
-		return signumFloat(f - e), nil
+		return signumFloat(f.Val - e.Val), nil
 	case SexpChar:
-		return signumFloat(f - SexpFloat(e)), nil
+		return signumFloat(f.Val - float64(e.Val)), nil
 	}
 	errmsg := fmt.Sprintf("cannot compare %T to %T", f, expr)
 	return 0, errors.New(errmsg)
 }
 
-func compareInt(i SexpInt, expr Sexp) (int, error) {
+func compareInt(i *SexpInt, expr Sexp) (int, error) {
 	switch e := expr.(type) {
-	case SexpInt:
-		return signumInt(i - e), nil
+	case *SexpInt:
+		return signumInt(i.Val - e.Val), nil
 	case SexpFloat:
-		return signumFloat(SexpFloat(i) - e), nil
+		return signumFloat(float64(i.Val) - e.Val), nil
 	case SexpChar:
-		return signumInt(i - SexpInt(e)), nil
+		return signumInt(i.Val - int64(e.Val)), nil
 	}
 	errmsg := fmt.Sprintf("cannot compare %T to %T", i, expr)
 	return 0, errors.New(errmsg)
@@ -54,12 +54,12 @@ func compareInt(i SexpInt, expr Sexp) (int, error) {
 
 func compareChar(c SexpChar, expr Sexp) (int, error) {
 	switch e := expr.(type) {
-	case SexpInt:
-		return signumInt(SexpInt(c) - e), nil
+	case *SexpInt:
+		return signumInt(int64(c.Val) - e.Val), nil
 	case SexpFloat:
-		return signumFloat(SexpFloat(c) - e), nil
+		return signumFloat(float64(c.Val) - e.Val), nil
 	case SexpChar:
-		return signumInt(SexpInt(c - e)), nil
+		return signumInt(int64(c.Val) - int64(e.Val)), nil
 	}
 	errmsg := fmt.Sprintf("cannot compare %T to %T", c, expr)
 	return 0, errors.New(errmsg)
@@ -68,7 +68,7 @@ func compareChar(c SexpChar, expr Sexp) (int, error) {
 func compareString(s SexpStr, expr Sexp) (int, error) {
 	switch e := expr.(type) {
 	case SexpStr:
-		return bytes.Compare([]byte(s), []byte(e)), nil
+		return bytes.Compare([]byte(s.S), []byte(e.S)), nil
 	}
 	errmsg := fmt.Sprintf("cannot compare %T to %T", s, expr)
 	return 0, errors.New(errmsg)
@@ -77,7 +77,7 @@ func compareString(s SexpStr, expr Sexp) (int, error) {
 func compareSymbol(sym SexpSymbol, expr Sexp) (int, error) {
 	switch e := expr.(type) {
 	case SexpSymbol:
-		return signumInt(SexpInt(sym.number - e.number)), nil
+		return signumInt(int64(sym.number - e.number)), nil
 	}
 	errmsg := fmt.Sprintf("cannot compare %T to %T", sym, expr)
 	return 0, errors.New(errmsg)
@@ -102,24 +102,24 @@ func comparePair(a SexpPair, b Sexp) (int, error) {
 	return Compare(a.Tail, bp.Tail)
 }
 
-func compareArray(a SexpArray, b Sexp) (int, error) {
-	var ba SexpArray
+func compareArray(a *SexpArray, b Sexp) (int, error) {
+	var ba *SexpArray
 	switch t := b.(type) {
-	case SexpArray:
+	case *SexpArray:
 		ba = t
 	default:
 		errmsg := fmt.Sprintf("cannot compare %T to %T", a, b)
 		return 0, errors.New(errmsg)
 	}
 	var length int
-	if len(a) < len(ba) {
-		length = len(a)
+	if len(a.Val) < len(ba.Val) {
+		length = len(a.Val)
 	} else {
-		length = len(ba)
+		length = len(ba.Val)
 	}
 
 	for i := 0; i < length; i++ {
-		res, err := Compare(a[i], ba[i])
+		res, err := Compare(a.Val[i], ba.Val[i])
 		if err != nil {
 			return 0, err
 		}
@@ -128,7 +128,7 @@ func compareArray(a SexpArray, b Sexp) (int, error) {
 		}
 	}
 
-	return signumInt(SexpInt(len(a) - len(ba))), nil
+	return signumInt(int64(len(a.Val) - len(ba.Val))), nil
 }
 
 func compareBool(a SexpBool, b Sexp) (int, error) {
@@ -142,21 +142,36 @@ func compareBool(a SexpBool, b Sexp) (int, error) {
 	}
 
 	// true > false
-	if a && bb {
+	if a.Val && bb.Val {
 		return 0, nil
 	}
-	if a {
+	if a.Val {
 		return 1, nil
 	}
-	if bb {
+	if bb.Val {
 		return -1, nil
 	}
 	return 0, nil
 }
 
+func comparePointers(a *SexpPointer, bs Sexp) (int, error) {
+	var b *SexpPointer
+	switch bt := bs.(type) {
+	case *SexpPointer:
+		b = bt
+	default:
+		return 0, fmt.Errorf("cannot compare %T to %T", a, bs)
+	}
+
+	if a.Target == b.Target {
+		return 0, nil
+	}
+	return 1, nil
+}
+
 func Compare(a Sexp, b Sexp) (int, error) {
 	switch at := a.(type) {
-	case SexpInt:
+	case *SexpInt:
 		return compareInt(at, b)
 	case SexpChar:
 		return compareChar(at, b)
@@ -170,8 +185,14 @@ func Compare(a Sexp, b Sexp) (int, error) {
 		return compareSymbol(at, b)
 	case SexpPair:
 		return comparePair(at, b)
-	case SexpArray:
+	case *SexpArray:
 		return compareArray(at, b)
+	case *SexpHash:
+		return compareHash(at, b)
+	case *RegisteredType:
+		return compareRegisteredTypes(at, b)
+	case *SexpPointer:
+		return comparePointers(at, b)
 	case SexpSentinel:
 		if at == SexpNull && b == SexpNull {
 			return 0, nil

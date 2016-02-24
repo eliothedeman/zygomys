@@ -257,9 +257,9 @@ func Test016ReflectCallOnGoMethodsZeroArgs(t *testing.T) {
 		VPrintf("got invoke =  %T/val=%#v\n", invok, invok)
 
 		switch arr := invok.(type) {
-		case SexpArray:
+		case *SexpArray:
 			// arr[0] should be string
-			cv.So(string(arr[0].(SexpStr)), cv.ShouldEqual, "yowza")
+			cv.So(arr.Val[0].(SexpStr).S, cv.ShouldEqual, "yowza")
 		default:
 			VPrintf("got %T/val=%#v\n", arr, arr)
 			panic("expected array back from _method")
@@ -301,9 +301,9 @@ func Test017ReflectCallOnGoMethodsOneArg(t *testing.T) {
 		VPrintf("got invoke =  %T/val=%#v\n", invok, invok)
 
 		switch arr := invok.(type) {
-		case SexpArray:
+		case *SexpArray:
 			// arr[0] should be string
-			cv.So(string(arr[0].(SexpStr)), cv.ShouldEqual,
+			cv.So(arr.Val[0].(SexpStr).S, cv.ShouldEqual,
 				`Snoopy sees weather 'sunny', cries 'yowza'`)
 		default:
 			VPrintf("got %T/val=%#v\n", arr, arr)
@@ -344,7 +344,7 @@ func Test018ReflectCallOnGoMethodsComplexReturnType(t *testing.T) {
 			   `)
 			panicOn(err)
 			VPrintf("got invoke = '%s'\n", invok.SexpString())
-			cv.So(invok.SexpString(), cv.ShouldEqual, `[ (weather time:()`+
+			cv.So(invok.SexpString(), cv.ShouldEqual, `[ (weather time:nil`+
 				` size:12 type:"sunny" details:[]byte{0x31, 0x32, 0x33})]`)
 		})
 }

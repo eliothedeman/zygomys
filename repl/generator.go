@@ -17,6 +17,7 @@ type Generator struct {
 
 type Loop struct {
 	stmtname       SexpSymbol
+	label          *SexpSymbol
 	loopStart      int
 	loopLen        int
 	breakOffset    int // i.e. relative to loopStart
@@ -67,7 +68,7 @@ func (gen *Generator) GenerateBegin(expressions []Sexp) error {
 func buildSexpFun(
 	env *Glisp,
 	name string,
-	funcargs SexpArray,
+	funcargs *SexpArray,
 	funcbody []Sexp,
 	orig Sexp) (*SexpFunction, error) {
 
@@ -84,9 +85,9 @@ func buildSexpFun(
 
 	gen.AddInstruction(AddFuncScopeInstr{Name: "runtime " + gen.funcname})
 
-	argsyms := make([]SexpSymbol, len(funcargs))
+	argsyms := make([]SexpSymbol, len(funcargs.Val))
 
-	for i, expr := range funcargs {
+	for i, expr := range funcargs.Val {
 		switch t := expr.(type) {
 		case SexpSymbol:
 			argsyms[i] = t
@@ -97,7 +98,7 @@ func buildSexpFun(
 	}
 
 	varargs := false
-	nargs := len(funcargs)
+	nargs := len(funcargs.Val)
 
 	if len(argsyms) >= 2 && argsyms[len(argsyms)-2].name == "&" {
 		argsyms[len(argsyms)-2] = argsyms[len(argsyms)-1]
@@ -133,10 +134,10 @@ func (gen *Generator) GenerateFn(args []Sexp, orig Sexp) error {
 		return errors.New("malformed function definition")
 	}
 
-	var funcargs SexpArray
+	var funcargs *SexpArray
 
 	switch expr := args[0].(type) {
-	case SexpArray:
+	case *SexpArray:
 		funcargs = expr
 	default:
 		return errors.New("function arguments must be in vector")
@@ -163,34 +164,14 @@ func (gen *Generator) GenerateDef(args []Sexp) error {
 		return errors.New("Wrong number of arguments to def")
 	}
 
-	var sym SexpSymbol
-	switch expr := args[0].(type) {
-	case SexpSymbol:
-		sym = expr
-	case SexpPair:
-		// gracefully handle the quoted symbols we get from macros
-		unquotedSymbol, isQuo := isQuotedSymbol(expr)
-		if isQuo {
-			// auto-unquoting first argument to def
-			sym = unquotedSymbol.(SexpSymbol)
-		} else {
-			return errors.New("Definition name must be symbol")
-		}
-	default:
-		return errors.New("Definition name must be symbol")
+	plhs, err := gen.GetLHS(args[0], "def")
+	if err != nil {
+		return err
 	}
-
-	builtin, typ := gen.env.IsBuiltinSym(sym)
-	if builtin {
-		return fmt.Errorf("already have %s '%s', refusing to overwrite with def", typ, sym.name)
-	}
-
-	if sym.isDot {
-		return fmt.Errorf("illegal attempt to def dot-symbol '%s'", sym.name)
-	}
+	lhs := *plhs
 
 	gen.Tail = false
-	err := gen.Generate(args[1])
+	err = gen.Generate(args[1])
 	if err != nil {
 		return err
 	}
@@ -198,7 +179,7 @@ func (gen *Generator) GenerateDef(args []Sexp) error {
 	// on the stack and becomes an expression rather
 	// than a statement.
 	gen.AddInstruction(DupInstr(0))
-	gen.AddInstruction(PopStackPutEnvInstr{sym})
+	gen.AddInstruction(PopStackPutEnvInstr{lhs})
 	return nil
 }
 
@@ -207,9 +188,9 @@ func (gen *Generator) GenerateDefn(args []Sexp, orig Sexp) error {
 		return errors.New("Wrong number of arguments to defn")
 	}
 
-	var funcargs SexpArray
+	var funcargs *SexpArray
 	switch expr := args[1].(type) {
-	case SexpArray:
+	case *SexpArray:
 		funcargs = expr
 	default:
 		return errors.New("function arguments must be in vector")
@@ -257,12 +238,12 @@ func (gen *Generator) GenerateDefmac(args []Sexp, orig Sexp) error {
 		return errors.New("Wrong number of arguments to defmac")
 	}
 
-	var funcargs SexpArray
+	var funcargs *SexpArray
 	switch expr := args[1].(type) {
-	case SexpArray:
+	case *SexpArray:
 		funcargs = expr
 	default:
-		return errors.New("function arguments must be in vector")
+		return errors.New("defmac arguments must be in vector")
 	}
 
 	var sym SexpSymbol
@@ -270,7 +251,7 @@ func (gen *Generator) GenerateDefmac(args []Sexp, orig Sexp) error {
 	case SexpSymbol:
 		sym = expr
 	default:
-		return errors.New("Definition name must be symbol")
+		return errors.New("defmac name must be symbol")
 	}
 
 	_, isBuiltin := gen.env.builtins[sym.number]
@@ -434,8 +415,8 @@ func (gen *Generator) GenerateLet(name string, args []Sexp) error {
 	var bindings []Sexp
 
 	switch expr := args[0].(type) {
-	case SexpArray:
-		bindings = []Sexp(expr)
+	case *SexpArray:
+		bindings = expr.Val
 	default:
 		return errors.New("let bindings must be in array")
 	}
@@ -515,8 +496,8 @@ func (gen *Generator) GenerateInclude(args []Sexp) error {
 
 	sourceItem = func(item Sexp) error {
 		switch t := item.(type) {
-		case SexpArray:
-			for _, v := range t {
+		case *SexpArray:
+			for _, v := range t.Val {
 				if err := sourceItem(v); err != nil {
 					return err
 				}
@@ -531,7 +512,7 @@ func (gen *Generator) GenerateInclude(args []Sexp) error {
 				expr = list.Tail
 			}
 		case SexpStr:
-			exps, err = gen.env.ParseFile(string(t))
+			exps, err = gen.env.ParseFile(t.S)
 			if err != nil {
 				return err
 			}
@@ -640,6 +621,17 @@ func (gen *Generator) GenerateCallBySymbol(sym SexpSymbol, args []Sexp, orig Sex
 	return nil
 }
 
+func (gen *Generator) GenerateBuilder(fun Sexp, args []Sexp) error {
+	//Q("GenerateBuilder is pushing unevaluated arguments onto the stack")
+	n := len(args)
+	for i := 0; i < n; i++ {
+		gen.AddInstruction(PushInstr{args[i]})
+	}
+	gen.Generate(fun)
+	gen.AddInstruction(DispatchInstr{len(args)})
+	return nil
+}
+
 func (gen *Generator) GenerateDispatch(fun Sexp, args []Sexp) error {
 	gen.GenerateAll(args)
 	gen.Generate(fun)
@@ -647,23 +639,62 @@ func (gen *Generator) GenerateDispatch(fun Sexp, args []Sexp) error {
 	return nil
 }
 
+func (gen *Generator) GenerateAssignment(expr SexpPair, assignPos int) error {
+	if assignPos == 0 {
+		return gen.GenerateCall(expr)
+	}
+	arr, err := ListToArray(expr)
+	panicOn(err) // internal error, should never happen since we prevalidate that we have a list.
+
+	if len(arr) <= 1 || assignPos == len(arr)-1 {
+		return fmt.Errorf("bad assignment syntax: no right-hand-side")
+	}
+
+	lhs := arr[:assignPos]
+	rhs := arr[assignPos+1:]
+
+	if len(lhs) != len(rhs) {
+		return fmt.Errorf("assignment imbalance: left-hand-side had %v, while right-hand-side had %v; in expression '%s'",
+			len(lhs), len(rhs), expr.SexpString())
+	}
+	// TODO: once functions have typed number of return values, check that we have balance
+	// of return value flow, rather than exact lhs to rhs count equality.
+
+	for i := range rhs {
+		err = gen.GenerateDef([]Sexp{lhs[i], rhs[i]})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (gen *Generator) GenerateCall(expr SexpPair) error {
 	arr, _ := ListToArray(expr.Tail)
 	switch head := expr.Head.(type) {
 	case SexpSymbol:
+		// detect builtin builder calls
+		x, err, _ := gen.env.LexicalLookupSymbol(head, false)
+		if err == nil {
+			fun, isFun := x.(*SexpFunction)
+			if isFun && fun.isBuilder {
+				return gen.GenerateBuilder(fun, arr)
+			}
+		}
+
 		// flow control and macros go here
 		return gen.GenerateCallBySymbol(head, arr, expr)
 	}
-	// SexpFunction calls go here
+	// regular SexpFunction calls go here
 	return gen.GenerateDispatch(expr.Head, arr)
 }
 
-func (gen *Generator) GenerateArray(arr SexpArray) error {
-	err := gen.GenerateAll(arr)
+func (gen *Generator) GenerateArray(arr *SexpArray) error {
+	err := gen.GenerateAll(arr.Val)
 	if err != nil {
 		return err
 	}
-	gen.AddInstruction(CallInstr{gen.env.MakeSymbol("array"), len(arr)})
+	gen.AddInstruction(CallInstr{gen.env.MakeSymbol("array"), len(arr.Val)})
 	return nil
 }
 
@@ -674,6 +705,23 @@ func (gen *Generator) Generate(expr Sexp) error {
 		return nil
 	case SexpPair:
 		if IsList(e) {
+			isAssign, pos := IsAssignmentList(e, 0)
+			legalLeftHandSide := true
+			if isAssign && pos > 0 {
+				_, err := gen.GetLHS(e.Head, "assign")
+				if err != nil {
+					legalLeftHandSide = false
+				}
+			}
+			if isAssign && pos > 0 && legalLeftHandSide {
+				err := gen.GenerateAssignment(e, pos)
+				if err != nil {
+					return errors.New(
+						fmt.Sprintf("Error generating %s:\n%v",
+							expr.SexpString(), err))
+				}
+				return nil
+			}
 			err := gen.GenerateCall(e)
 			if err != nil {
 				return errors.New(
@@ -684,7 +732,7 @@ func (gen *Generator) Generate(expr Sexp) error {
 		} else {
 			gen.AddInstruction(PushInstr{expr})
 		}
-	case SexpArray:
+	case *SexpArray:
 		return gen.GenerateArray(e)
 	default:
 		gen.AddInstruction(PushInstr{expr})
@@ -709,9 +757,11 @@ func (gen *Generator) Reset() {
 	gen.scopes = 0
 }
 
+var ErrBadLoopSyntax = errors.New("for loop: first argument must be a label or a vector of [init predicate advance]")
+
 // for loops: Just like in C.
 //
-// (for [init predicate advance] (expr)*)
+// (for {optional-label} [init predicate advance] (expr)*)
 //
 // Each of init, predicate, and advance are expressions
 // that are evaluated during the running of the for loop.
@@ -726,20 +776,48 @@ func (gen *Generator) GenerateForLoop(args []Sexp) error {
 		return errors.New("malformed for loop")
 	}
 
-	var controlargs SexpArray
+	startgen := 1
+	var controlargs *SexpArray
+	var labelsym SexpSymbol
+	var err error
+	foundSym := false
 	switch expr := args[0].(type) {
-	case SexpArray:
+	case SexpPair:
+		labelsym, err = getQuotedSymbol(expr)
+		if err != nil {
+			return ErrBadLoopSyntax
+		}
+		foundSym = true
+		startgen = 2
+	case *SexpArray:
 		controlargs = expr
 	default:
-		return errors.New("for loop: first argument must be a vector of [init predicate advance]")
+		return ErrBadLoopSyntax
 	}
 
-	if len(controlargs) != 3 {
-		return errors.New("for loop: first argument wrong size; must be a vector of three [init test advance]")
+	if foundSym {
+		switch expr := args[1].(type) {
+		case *SexpArray:
+			controlargs = expr
+		default:
+			return errors.New("for loop: 2nd argument after the label must be a vector of [init predicate advance]")
+		}
 	}
 
-	loop := &Loop{
-		stmtname: gen.env.GenSymbol("__loop"),
+	if len(controlargs.Val) != 3 {
+		return errors.New("for loop: control vector argument wrong size; must be a vector of three [init test advance]")
+	}
+
+	var loop *Loop
+	if foundSym {
+		loop = &Loop{
+			stmtname: gen.env.GenSymbol("__loop_" + labelsym.name + "_"),
+			label:    &labelsym,
+		}
+	} else {
+		loop = &Loop{
+			stmtname: gen.env.GenSymbol("__loop"),
+		}
 	}
 
 	gen.env.loopstack.Push(loop)
@@ -754,7 +832,7 @@ func (gen *Generator) GenerateForLoop(args []Sexp) error {
 	// But this is preferred to having nested, sourced
 	// loops use repeat the use variable i in an index and then
 	// end up clobering the parents loop index
-	// inadvertantly.
+	// inadvertently.
 	gen.AddInstruction(AddScopeInstr{Name: "runtime " + loop.stmtname.name})
 	gen.AddInstruction(PushStackmarkInstr{sym: loop.stmtname})
 
@@ -763,7 +841,7 @@ func (gen *Generator) GenerateForLoop(args []Sexp) error {
 	subgenBody.Tail = gen.Tail
 	subgenBody.scopes = gen.scopes
 	subgenBody.funcname = gen.funcname
-	err := subgenBody.GenerateBegin(args[1:])
+	err = subgenBody.GenerateBegin(args[startgen:])
 	if err != nil {
 		return err
 	}
@@ -776,7 +854,7 @@ func (gen *Generator) GenerateForLoop(args []Sexp) error {
 	subgenInit.Tail = gen.Tail
 	subgenInit.scopes = gen.scopes
 	subgenInit.funcname = gen.funcname
-	err = subgenInit.Generate(controlargs[0])
+	err = subgenInit.Generate(controlargs.Val[0])
 	if err != nil {
 		return err
 	}
@@ -790,7 +868,7 @@ func (gen *Generator) GenerateForLoop(args []Sexp) error {
 	subgenT.scopes = gen.scopes
 	subgenT.funcname = gen.funcname
 
-	err = subgenT.Generate(controlargs[1])
+	err = subgenT.Generate(controlargs.Val[1])
 	if err != nil {
 		return err
 	}
@@ -804,7 +882,7 @@ func (gen *Generator) GenerateForLoop(args []Sexp) error {
 	subgenIncr.scopes = gen.scopes
 	subgenIncr.funcname = gen.funcname
 
-	err = subgenIncr.Generate(controlargs[2])
+	err = subgenIncr.Generate(controlargs.Val[2])
 	if err != nil {
 		return err
 	}
@@ -839,6 +917,7 @@ func (gen *Generator) GenerateForLoop(args []Sexp) error {
 		where: "to-continue-position-aka-increment"})
 	gen.AddInstruction(LabelInstr{label: "end of body for " + loop.stmtname.name})
 	// bottom is (break) target
+	bottomPos := len(gen.instructions)
 
 	// cleanup
 	gen.AddInstruction(ClearStackmarkInstr{sym: loop.stmtname})
@@ -846,8 +925,8 @@ func (gen *Generator) GenerateForLoop(args []Sexp) error {
 	gen.AddInstruction(PushInstr{SexpNull}) // for is a statement; leave null on the stack.
 
 	loop.loopStart = startPos - bodyPos // offset; should be negative.
-	loop.loopLen = len(gen.instructions) - startPos
-	loop.breakOffset = loop.loopLen
+	//loop.loopLen = len(gen.instructions) - startPos
+	loop.breakOffset = bottomPos - startPos // previously loop.loopLen
 	loop.continueOffset = continuePos - startPos
 
 	VPrintf("\n debug at end of for loop generation, loop = %#v at address %p\n",
@@ -862,36 +941,15 @@ func (gen *Generator) GenerateSet(args []Sexp) error {
 		return errors.New("malformed set statement, need 2 arguments")
 	}
 
-	var lhs SexpSymbol
-	switch expr := args[0].(type) {
-	case SexpSymbol:
-		lhs = expr
-
-	case SexpPair:
-		// gracefully handle the quoted symbols we get from macros
-		unquotedSymbol, isQuo := isQuotedSymbol(expr)
-		if isQuo {
-			// auto-unquoting first argument to def
-			lhs = unquotedSymbol.(SexpSymbol)
-		} else {
-			return errors.New("set: left-hand-side must be a symbol")
-		}
-	default:
-		return errors.New("set: left-hand-side must be a symbol")
+	plhs, err := gen.GetLHS(args[0], "set")
+	if err != nil {
+		return err
 	}
-
-	if gen.env.HasMacro(lhs) {
-		return fmt.Errorf("Already have macro named '%s': refusing "+
-			"to set variable of same name.", lhs.name)
-	}
-
-	if lhs.isDot {
-		return fmt.Errorf("illegal to set dot-symbol, attempted on '%s'", lhs.name)
-	}
+	lhs := *plhs
 
 	rhs := args[1]
 	gen.Tail = false
-	err := gen.Generate(rhs)
+	err = gen.Generate(rhs)
 	if err != nil {
 		return err
 	}
@@ -902,6 +960,41 @@ func (gen *Generator) GenerateSet(args []Sexp) error {
 	gen.AddInstruction(UpdateInstr{lhs})
 	return nil
 
+}
+
+func (gen *Generator) GetLHS(arg Sexp, opname string) (*SexpSymbol, error) {
+	//P("GetLHS called with arg '%s'", arg.SexpString())
+	var lhs SexpSymbol
+	switch expr := arg.(type) {
+	case SexpSymbol:
+		lhs = expr
+	case SexpPair:
+		// gracefully handle the quoted symbols we get from macros
+		unquotedSymbol, isQuo := isQuotedSymbol(expr)
+		if isQuo {
+			// auto-unquoting first argument to def
+			lhs = unquotedSymbol.(SexpSymbol)
+		} else {
+			return nil, fmt.Errorf("%s: left-hand-side must be a symbol", opname)
+		}
+	default:
+		return nil, fmt.Errorf("%s: left-hand-side must be a symbol", opname)
+	}
+
+	builtin, typ := gen.env.IsBuiltinSym(lhs)
+	if builtin {
+		return nil, fmt.Errorf("already have %s '%s', refusing to overwrite with %s", typ, lhs.name, opname)
+	}
+
+	if gen.env.HasMacro(lhs) {
+		return nil, fmt.Errorf("Already have macro named '%s': refusing "+
+			"to %s variable of same name.", lhs.name, opname)
+	}
+
+	if lhs.isDot {
+		return nil, fmt.Errorf("illegal to %s dot-symbol, attempted on '%s'", opname, lhs.name)
+	}
+	return &lhs, nil
 }
 
 // (mdef a b c (list 1 2 3)) will bind a:1 b:2 c:3
@@ -980,9 +1073,9 @@ func (gen *Generator) GenerateSyntaxQuote(args []Sexp) error {
 
 	// need to handle arrays, since they can have unquotes
 	// in them too.
-	switch arg.(type) {
-	case SexpArray:
-		gen.generateSyntaxQuoteArray(arg)
+	switch aaa := arg.(type) {
+	case *SexpArray:
+		gen.generateSyntaxQuoteArray(aaa)
 		return nil
 	case SexpPair:
 		if !IsList(arg) {
@@ -990,7 +1083,7 @@ func (gen *Generator) GenerateSyntaxQuote(args []Sexp) error {
 		}
 		gen.generateSyntaxQuoteList(arg)
 		return nil
-	case SexpHash:
+	case *SexpHash:
 		gen.generateSyntaxQuoteHash(arg)
 		return nil
 	}
@@ -1054,9 +1147,9 @@ func (gen *Generator) generateSyntaxQuoteList(arg Sexp) error {
 func (gen *Generator) generateSyntaxQuoteArray(arg Sexp) error {
 	VPrintf("\n GenerateSyntaxQuoteArray() called with arg='%#v'\n", arg)
 
-	var arr SexpArray
+	var arr *SexpArray
 	switch a := arg.(type) {
-	case SexpArray:
+	case *SexpArray:
 		//good, required here
 		arr = a
 	default:
@@ -1064,7 +1157,7 @@ func (gen *Generator) generateSyntaxQuoteArray(arg Sexp) error {
 	}
 
 	gen.AddInstruction(PushInstr{SexpMarker})
-	for _, expr := range arr {
+	for _, expr := range arr.Val {
 		gen.AddInstruction(PushInstr{SexpMarker})
 		gen.GenerateSyntaxQuote([]Sexp{expr})
 		gen.AddInstruction(SquashInstr(0))
@@ -1077,9 +1170,9 @@ func (gen *Generator) generateSyntaxQuoteArray(arg Sexp) error {
 func (gen *Generator) generateSyntaxQuoteHash(arg Sexp) error {
 	VPrintf("\n GenerateSyntaxQuoteHash() called with arg='%#v'\n", arg)
 
-	var hash SexpHash
+	var hash *SexpHash
 	switch a := arg.(type) {
-	case SexpHash:
+	case *SexpHash:
 		//good, required here
 		hash = a
 	default:
@@ -1089,7 +1182,7 @@ func (gen *Generator) generateSyntaxQuoteHash(arg Sexp) error {
 	gen.AddInstruction(PushInstr{SexpMarker})
 	for i := 0; i < n; i++ {
 		// must reverse order here to preserve order on rebuild
-		key := (*hash.KeyOrder)[(n-i)-1]
+		key := hash.KeyOrder[(n-i)-1]
 		val, err := hash.HashGet(nil, key)
 		if err != nil {
 			return err
@@ -1107,25 +1200,66 @@ func (gen *Generator) generateSyntaxQuoteHash(arg Sexp) error {
 	}
 	gen.AddInstruction(HashizeInstr{
 		HashLen:  n,
-		TypeName: *(hash.TypeName),
+		TypeName: hash.TypeName,
 	})
 	return nil
 }
 
 func (gen *Generator) GenerateContinue(args []Sexp) error {
-	if len(args) != 0 {
-		return fmt.Errorf("(continue) takes no arguments")
+	if len(args) > 1 {
+		return fmt.Errorf("too many arguments to continue; (continue) or (continue label:) is the form.")
 	}
-	lse, err := gen.env.loopstack.Get(gen.env.loopstack.Top())
-	if err != nil || lse == nil {
+
+	var labelsym SexpSymbol
+	var err error
+	foundSym := false
+
+	if len(args) == 1 {
+		switch expr := args[0].(type) {
+		case SexpPair:
+			labelsym, err = getQuotedSymbol(expr)
+			if err != nil {
+				return ErrBadContinueLabel
+			}
+			foundSym = true
+		default:
+			return ErrBadContinueLabel
+		}
+	}
+
+	if gen.env.loopstack.IsEmpty() {
 		return fmt.Errorf("(continue) found but not inside a loop.")
 	}
+
 	var loop *Loop
-	switch e := lse.(type) {
-	case *Loop:
-		loop = e
-	default:
-		panic(fmt.Errorf("unexpected type found on loopstack: type=%T  value='%#v'", e, e))
+	isLoop := false
+	n := gen.env.loopstack.Size()
+	matchedTheLabel := false
+scanUpTheLoops:
+	for i := 0; i < n; i++ {
+		lse, err := gen.env.loopstack.Get(i)
+		if err != nil || lse == nil {
+			return fmt.Errorf("(continue) found but not inside a loop.")
+		}
+		loop, isLoop = lse.(*Loop)
+		if !isLoop {
+			panic(fmt.Errorf("unexpected type found on loopstack: type=%T  value='%#v'", lse, lse))
+		}
+		if !foundSym {
+			break scanUpTheLoops
+		}
+		if loop.label != nil {
+			if loop.label.number == labelsym.number {
+				matchedTheLabel = true
+				Q("\n labeled countinue found matching loop label '%s'\n", labelsym.name)
+				break scanUpTheLoops
+			}
+		}
+	}
+
+	if foundSym && !matchedTheLabel {
+		return fmt.Errorf("(continue %s:) problem: could not find matching for-loop with label %s:",
+			labelsym.name, labelsym.name)
 	}
 
 	myPos := len(gen.instructions)
@@ -1134,22 +1268,64 @@ func (gen *Generator) GenerateContinue(args []Sexp) error {
 	return nil
 }
 
+var ErrBadBreakLabel = errors.New("bad break label")
+var ErrBadContinueLabel = errors.New("bad continue label")
+
 func (gen *Generator) GenerateBreak(args []Sexp) error {
-	if len(args) != 0 {
-		return fmt.Errorf("(break) takes no arguments")
+	if len(args) > 1 {
+		return fmt.Errorf("too many arguments to break; (break) or (break label:) is the form.")
 	}
 
-	lse, err := gen.env.loopstack.Get(gen.env.loopstack.Top())
-	if err != nil || lse == nil {
+	var labelsym SexpSymbol
+	var err error
+	foundSym := false
+
+	if len(args) == 1 {
+		switch expr := args[0].(type) {
+		case SexpPair:
+			labelsym, err = getQuotedSymbol(expr)
+			if err != nil {
+				return ErrBadBreakLabel
+			}
+			foundSym = true
+		default:
+			return ErrBadBreakLabel
+		}
+	}
+
+	if gen.env.loopstack.IsEmpty() {
 		return fmt.Errorf("(break) found but not inside a loop.")
 	}
 
 	var loop *Loop
-	switch e := lse.(type) {
-	case *Loop:
-		loop = e
-	default:
-		panic(fmt.Errorf("unexpected type found on loopstack: type=%T  value='%#v'", e, e))
+	isLoop := false
+	n := gen.env.loopstack.Size()
+	matchedTheLabel := false
+scanUpTheLoops:
+	for i := 0; i < n; i++ {
+		lse, err := gen.env.loopstack.Get(i)
+		if err != nil || lse == nil {
+			return fmt.Errorf("(break) found but not inside a loop.")
+		}
+		loop, isLoop = lse.(*Loop)
+		if !isLoop {
+			panic(fmt.Errorf("unexpected type found on loopstack: type=%T  value='%#v'", lse, lse))
+		}
+		if !foundSym {
+			break scanUpTheLoops
+		}
+		if loop.label != nil {
+			if loop.label.number == labelsym.number {
+				matchedTheLabel = true
+				Q("\n labeled break found matching loop label '%s'\n", labelsym.name)
+				break scanUpTheLoops
+			}
+		}
+	}
+
+	if foundSym && !matchedTheLabel {
+		return fmt.Errorf("(break %s:) problem: could not find matching for-loop with label %s:",
+			labelsym.name, labelsym.name)
 	}
 
 	VPrintf("\n debug GenerateBreak() : loop=%#v\n", loop)
@@ -1190,4 +1366,31 @@ func (gen *Generator) GenerateDebug(diag string) error {
 	gen.AddInstruction(DebugInstr{diagnostic: diag})
 	gen.AddInstruction(PushInstr{SexpNull})
 	return nil
+}
+
+var ErrBadQuotedSym = fmt.Errorf("not a quoted symbol")
+
+// insist that expr is of the form '(quote mysymbol)',
+// and return mysymbol, nil if it is.
+func getQuotedSymbol(expr SexpPair) (SexpSymbol, error) {
+	n, err := ListLen(expr)
+	if err != nil {
+		return SexpSymbol{}, ErrBadQuotedSym
+	}
+	if n != 2 {
+		return SexpSymbol{}, ErrBadQuotedSym
+	}
+	qu, isSym := expr.Head.(SexpSymbol)
+	if !isSym {
+		return SexpSymbol{}, ErrBadQuotedSym
+	}
+	if qu.name != "quote" {
+		return SexpSymbol{}, ErrBadQuotedSym
+	}
+	eth := expr.Tail.(SexpPair).Head
+	labelsym, isSym := eth.(SexpSymbol)
+	if !isSym {
+		return SexpSymbol{}, ErrBadQuotedSym
+	}
+	return labelsym, nil
 }

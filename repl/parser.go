@@ -286,7 +286,7 @@ func (parser *Parser) ParseArray(depth int) (Sexp, error) {
 		arr = append(arr, expr)
 	}
 
-	return SexpArray(arr), nil
+	return &SexpArray{Val: arr}, nil
 }
 
 func (parser *Parser) ParseHash(depth int) (Sexp, error) {
@@ -387,46 +387,50 @@ func (parser *Parser) ParseExpression(depth int) (res Sexp, err error) {
 		return MakeList([]Sexp{env.MakeSymbol("unquote-splicing"), expr}), nil
 	case TokenSymbol:
 		return env.MakeSymbol(tok.str), nil
+	case TokenFreshAssign:
+		return env.MakeSymbol(tok.str), nil
 	case TokenColonOperator:
 		return env.MakeSymbol(tok.str), nil
 	case TokenDollar:
 		return env.MakeSymbol(tok.str), nil
 	case TokenBool:
-		return SexpBool(tok.str == "true"), nil
+		return SexpBool{Val: tok.str == "true"}, nil
 	case TokenDecimal:
 		i, err := strconv.ParseInt(tok.str, 10, SexpIntSize)
 		if err != nil {
 			return SexpNull, err
 		}
-		return SexpInt(i), nil
+		return &SexpInt{Val: i}, nil
 	case TokenHex:
 		i, err := strconv.ParseInt(tok.str, 16, SexpIntSize)
 		if err != nil {
 			return SexpNull, err
 		}
-		return SexpInt(i), nil
+		return &SexpInt{Val: i}, nil
 	case TokenOct:
 		i, err := strconv.ParseInt(tok.str, 8, SexpIntSize)
 		if err != nil {
 			return SexpNull, err
 		}
-		return SexpInt(i), nil
+		return &SexpInt{Val: i}, nil
 	case TokenBinary:
 		i, err := strconv.ParseInt(tok.str, 2, SexpIntSize)
 		if err != nil {
 			return SexpNull, err
 		}
-		return SexpInt(i), nil
+		return &SexpInt{Val: i}, nil
 	case TokenChar:
-		return SexpChar(tok.str[0]), nil
+		return SexpChar{Val: rune(tok.str[0])}, nil
 	case TokenString:
-		return SexpStr(tok.str), nil
+		return SexpStr{S: tok.str}, nil
+	case TokenBacktickString:
+		return SexpStr{S: tok.str, backtick: true}, nil
 	case TokenFloat:
 		f, err := strconv.ParseFloat(tok.str, SexpFloatSize)
 		if err != nil {
 			return SexpNull, err
 		}
-		return SexpFloat(f), nil
+		return SexpFloat{Val: f}, nil
 	case TokenEnd:
 		return SexpEnd, nil
 	case TokenDot:
@@ -447,10 +451,11 @@ func (parser *Parser) ParseExpression(depth int) (res Sexp, err error) {
 func (p *Parser) ParseTokens() ([]Sexp, error) {
 	select {
 	case out := <-p.ParsedOutput:
+		Q("ParseTokens got p.ParsedOutput out: '%#v'", out)
 		r := make([]Sexp, 0)
 		for _, k := range out {
 			r = append(r, k.Expr...)
-			//P("\n ParseTokens k.Expr = '%v'\n\n", SexpArray(k.Expr).SexpString())
+			Q("\n ParseTokens k.Expr = '%v'\n\n", (&SexpArray{Val: k.Expr}).SexpString())
 			if k.Err != nil {
 				return r, k.Err
 			}

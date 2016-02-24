@@ -11,7 +11,7 @@ func GobEncodeFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		return SexpNull, WrongNargs
 	}
 
-	h, isHash := args[0].(SexpHash)
+	h, isHash := args[0].(*SexpHash)
 	if !isHash {
 		return SexpNull, fmt.Errorf("gob argument must be a hash or defmap")
 	}
@@ -26,12 +26,12 @@ func GobEncodeFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	var gobBytes bytes.Buffer
 
 	enc := gob.NewEncoder(&gobBytes)
-	err = enc.Encode(*h.GoShadowStruct)
+	err = enc.Encode(h.GoShadowStruct)
 	if err != nil {
 		return SexpNull, fmt.Errorf("gob encode error: '%s'", err)
 	}
 
-	return SexpRaw(gobBytes.Bytes()), nil
+	return SexpRaw{Val: gobBytes.Bytes()}, nil
 }
 
 func GobDecodeFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
@@ -44,7 +44,7 @@ func GobDecodeFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		return SexpNull, fmt.Errorf("ungob argument must be raw []byte")
 	}
 
-	rawBuf := bytes.NewBuffer(raw)
+	rawBuf := bytes.NewBuffer(raw.Val)
 	dec := gob.NewDecoder(rawBuf)
 	var iface interface{}
 	err := dec.Decode(iface)
@@ -55,5 +55,5 @@ func GobDecodeFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	// TODO convert to hash
 	panic("not done yet!")
 
-	return SexpNull, nil
+	//return SexpNull, nil
 }

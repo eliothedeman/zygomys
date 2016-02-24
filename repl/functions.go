@@ -41,7 +41,7 @@ func CompareFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		cond = res != 0
 	}
 
-	return SexpBool(cond), nil
+	return SexpBool{Val: cond}, nil
 }
 
 func BinaryIntFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
@@ -97,15 +97,25 @@ func ComplementFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	}
 
 	switch t := args[0].(type) {
-	case SexpInt:
-		return ^t, nil
+	case *SexpInt:
+		return &SexpInt{Val: ^t.Val}, nil
 	case SexpChar:
-		return ^t, nil
+		return SexpChar{Val: ^t.Val}, nil
 	}
 
 	return SexpNull, errors.New("Argument to bit-not should be integer")
 }
 
+func PointerOrNumericFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
+	n := len(args)
+	if n == 0 {
+		return SexpNull, WrongNargs
+	}
+	if n >= 2 {
+		return NumericFunction(env, name, args)
+	}
+	return PointerToFunction(env, name, args)
+}
 func NumericFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	if len(args) < 1 {
 		return SexpNull, WrongNargs
@@ -151,9 +161,9 @@ func FirstFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	switch expr := args[0].(type) {
 	case SexpPair:
 		return expr.Head, nil
-	case SexpArray:
-		if len(expr) > 0 {
-			return expr[0], nil
+	case *SexpArray:
+		if len(expr.Val) > 0 {
+			return expr.Val[0], nil
 		}
 		return SexpNull, fmt.Errorf("first called on empty array")
 	}
@@ -168,11 +178,11 @@ func RestFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	switch expr := args[0].(type) {
 	case SexpPair:
 		return expr.Tail, nil
-	case SexpArray:
-		if len(expr) == 0 {
+	case *SexpArray:
+		if len(expr.Val) == 0 {
 			return expr, nil
 		}
-		return expr[1:], nil
+		return &SexpArray{Val: expr.Val[1:]}, nil
 	case SexpSentinel:
 		if expr == SexpNull {
 			return SexpNull, nil
@@ -194,9 +204,9 @@ func SecondFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 			return p.Head, nil
 		}
 		return SexpNull, fmt.Errorf("list too small for second")
-	case SexpArray:
-		if len(expr) >= 2 {
-			return expr[1], nil
+	case *SexpArray:
+		if len(expr.Val) >= 2 {
+			return expr.Val[1], nil
 		}
 		return SexpNull, fmt.Errorf("array too small for second")
 	}
@@ -210,9 +220,9 @@ func ArrayAccessFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		return SexpNull, WrongNargs
 	}
 
-	var arr SexpArray
+	var arr *SexpArray
 	switch t := args[0].(type) {
-	case SexpArray:
+	case *SexpArray:
 		arr = t
 	default:
 		return SexpNull, errors.New("First argument of aget must be array")
@@ -220,10 +230,10 @@ func ArrayAccessFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 
 	var i int
 	switch t := args[1].(type) {
-	case SexpInt:
-		i = int(t)
+	case *SexpInt:
+		i = int(t.Val)
 	case SexpChar:
-		i = int(t)
+		i = int(t.Val)
 	default:
 		// can we evaluate it?
 		res, err := EvalFunction(env, "eval-aget-index", []Sexp{args[1]})
@@ -232,8 +242,8 @@ func ArrayAccessFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 				"array-access position argument: %s", err)
 		}
 		switch j := res.(type) {
-		case SexpInt:
-			i = int(j)
+		case *SexpInt:
+			i = int(j.Val)
 		default:
 			return SexpNull, errors.New("Second argument of aget could not be evaluated to integer")
 		}
@@ -243,19 +253,19 @@ func ArrayAccessFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	case "hget":
 		fallthrough
 	case "aget":
-		if i < 0 || i >= len(arr) {
+		if i < 0 || i >= len(arr.Val) {
 			// out of bounds -- do we have a default?
 			if narg == 3 {
 				return args[2], nil
 			}
 			return SexpNull, errors.New("Array index out of bounds")
 		}
-		return arr[i], nil
+		return arr.Val[i], nil
 	case "aset!":
 		if len(args) != 3 {
 			return SexpNull, WrongNargs
 		}
-		arr[i] = args[2]
+		arr.Val[i] = args[2]
 	}
 	return SexpNull, nil
 }
@@ -275,15 +285,15 @@ func SgetFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 
 	var i int
 	switch t := args[1].(type) {
-	case SexpInt:
-		i = int(t)
+	case *SexpInt:
+		i = int(t.Val)
 	case SexpChar:
-		i = int(t)
+		i = int(t.Val)
 	default:
 		return SexpNull, errors.New("Second argument of sget must be integer")
 	}
 
-	return SexpChar(str[i]), nil
+	return SexpChar{Val: rune(str.S[i])}, nil
 }
 
 func HashAccessFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
@@ -291,9 +301,9 @@ func HashAccessFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		return SexpNull, WrongNargs
 	}
 
-	var hash SexpHash
+	var hash *SexpHash
 	switch e := args[0].(type) {
-	case SexpHash:
+	case *SexpHash:
 		hash = e
 	default:
 		return SexpNull, errors.New("first argument of to h* function must be hash")
@@ -322,19 +332,19 @@ func HashAccessFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 			return SexpNull, WrongNargs
 		}
 		keys := make([]Sexp, 0)
-		n := len(*(hash.KeyOrder))
+		n := len(hash.KeyOrder)
 		for i := 0; i < n; i++ {
-			keys = append(keys, (*hash.KeyOrder)[i])
+			keys = append(keys, (hash.KeyOrder)[i])
 		}
-		return SexpArray(keys), nil
+		return &SexpArray{Val: keys}, nil
 	case "hpair":
 		if len(args) != 2 {
 			return SexpNull, WrongNargs
 		}
 		switch posreq := args[1].(type) {
-		case SexpInt:
-			pos := int(posreq)
-			if pos < 0 || pos >= len(*hash.KeyOrder) {
+		case *SexpInt:
+			pos := int(posreq.Val)
+			if pos < 0 || pos >= len(hash.KeyOrder) {
 				return SexpNull, fmt.Errorf("hpair position request %d out of bounds", pos)
 			}
 			return hash.HashPairi(pos)
@@ -351,9 +361,9 @@ func HashColonFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		return SexpNull, WrongNargs
 	}
 
-	var hash SexpHash
+	var hash *SexpHash
 	switch e := args[1].(type) {
-	case SexpHash:
+	case *SexpHash:
 		hash = e
 	default:
 		return SexpNull, errors.New("second argument of (:field hash) must be a hash")
@@ -373,28 +383,28 @@ func SliceFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	var start int
 	var end int
 	switch t := args[1].(type) {
-	case SexpInt:
-		start = int(t)
+	case *SexpInt:
+		start = int(t.Val)
 	case SexpChar:
-		start = int(t)
+		start = int(t.Val)
 	default:
 		return SexpNull, errors.New("Second argument of slice must be integer")
 	}
 
 	switch t := args[2].(type) {
-	case SexpInt:
-		end = int(t)
+	case *SexpInt:
+		end = int(t.Val)
 	case SexpChar:
-		end = int(t)
+		end = int(t.Val)
 	default:
 		return SexpNull, errors.New("Third argument of slice must be integer")
 	}
 
 	switch t := args[0].(type) {
-	case SexpArray:
-		return SexpArray(t[start:end]), nil
+	case *SexpArray:
+		return &SexpArray{Val: t.Val[start:end]}, nil
 	case SexpStr:
-		return SexpStr(t[start:end]), nil
+		return SexpStr{S: t.S[start:end]}, nil
 	}
 
 	return SexpNull, errors.New("First argument of slice must be array or string")
@@ -405,24 +415,31 @@ func LenFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		return SexpNull, WrongNargs
 	}
 
+	var err error
+	args, err = env.ResolveDotSym(args)
+	if err != nil {
+		return SexpNull, err
+	}
+
 	switch t := args[0].(type) {
 	case SexpSentinel:
 		if t == SexpNull {
-			return SexpInt(0), nil
+			return &SexpInt{}, nil
 		}
 		break
-	case SexpArray:
-		return SexpInt(len(t)), nil
+	case *SexpArray:
+		return &SexpInt{Val: int64(len(t.Val))}, nil
 	case SexpStr:
-		return SexpInt(len(t)), nil
-	case SexpHash:
-		return SexpInt(HashCountKeys(t)), nil
+		return &SexpInt{Val: int64(len(t.S))}, nil
+	case *SexpHash:
+		return &SexpInt{Val: int64(HashCountKeys(t))}, nil
 	case SexpPair:
 		n, err := ListLen(t)
-		return SexpInt(n), err
+		return &SexpInt{Val: int64(n)}, err
+	default:
+		P("in LenFunction with args[0] of type %T", t)
 	}
-
-	return SexpInt(0), errors.New("argument must be string, list, hash, or array")
+	return &SexpInt{}, errors.New("argument must be string, list, hash, or array")
 }
 
 func AppendFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
@@ -431,8 +448,8 @@ func AppendFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	}
 
 	switch t := args[0].(type) {
-	case SexpArray:
-		return SexpArray(append(t, args[1])), nil
+	case *SexpArray:
+		return &SexpArray{Val: append(t.Val, args[1])}, nil
 	case SexpStr:
 		return AppendStr(t, args[1])
 	}
@@ -451,7 +468,7 @@ func ConcatFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	}
 
 	switch t := args[0].(type) {
-	case SexpArray:
+	case *SexpArray:
 		return ConcatArray(t, args[1:])
 	case SexpStr:
 		return ConcatStr(t, args[1:])
@@ -478,7 +495,7 @@ func ReadFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	str := ""
 	switch t := args[0].(type) {
 	case SexpStr:
-		str = string(t)
+		str = t.S
 	default:
 		return SexpNull, WrongType
 	}
@@ -508,7 +525,7 @@ func TypeQueryFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	var result bool
 
 	switch name {
-	case "type":
+	case "type?":
 		return TypeOf(args[0]), nil
 	case "list?":
 		result = IsList(args[0])
@@ -538,7 +555,7 @@ func TypeQueryFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		result = IsFunc(args[0])
 	}
 
-	return SexpBool(result), nil
+	return SexpBool{Val: result}, nil
 }
 
 func PrintFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
@@ -550,7 +567,7 @@ func PrintFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 
 	switch expr := args[0].(type) {
 	case SexpStr:
-		str = string(expr)
+		str = expr.S
 	default:
 		str = expr.SexpString()
 	}
@@ -580,7 +597,7 @@ func NotFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		return SexpNull, WrongNargs
 	}
 
-	result := SexpBool(!IsTruthy(args[0]))
+	result := SexpBool{Val: !IsTruthy(args[0])}
 	return result, nil
 }
 
@@ -589,7 +606,7 @@ func ApplyFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		return SexpNull, WrongNargs
 	}
 	var fun *SexpFunction
-	var funargs SexpArray
+	var funargs []Sexp
 
 	switch e := args[0].(type) {
 	case *SexpFunction:
@@ -599,8 +616,8 @@ func ApplyFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	}
 
 	switch e := args[1].(type) {
-	case SexpArray:
-		funargs = e
+	case *SexpArray:
+		funargs = e.Val
 	case SexpPair:
 		var err error
 		funargs, err = ListToArray(e)
@@ -630,7 +647,7 @@ func MapFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	}
 
 	switch e := args[1].(type) {
-	case SexpArray:
+	case *SexpArray:
 		return MapArray(env, fun, e)
 	case SexpPair:
 		x, err := MapList(env, fun, e)
@@ -647,8 +664,8 @@ func MakeArrayFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 
 	var size int
 	switch e := args[0].(type) {
-	case SexpInt:
-		size = int(e)
+	case *SexpInt:
+		size = int(e.Val)
 	default:
 		return SexpNull, errors.New("first argument must be integer")
 	}
@@ -665,36 +682,53 @@ func MakeArrayFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		arr[i] = fill
 	}
 
-	return SexpArray(arr), nil
+	return &SexpArray{Val: arr}, nil
 }
 
 func ConstructorFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	switch name {
 	case "array":
-		return SexpArray(args), nil
+		return &SexpArray{Val: args}, nil
 	case "list":
 		return MakeList(args), nil
 	case "hash":
 		return MakeHash(args, "hash", env)
 	case "raw":
 		return MakeRaw(args)
+	case "field":
+		Q("making hash for field")
+		h, err := MakeHash(args, "field", env)
+		if err != nil {
+			return SexpNull, err
+		}
+		fld := (*SexpField)(h)
+		Q("hash for field is: '%v'", fld.SexpString())
+		return fld, nil
+	case "struct":
+		return MakeHash(args, "struct", env)
 	case "msgmap":
 		switch len(args) {
 		case 0:
-			return MakeHash(args, "msgmap", env)
+			return MakeHash(args, name, env)
 		default:
-			arr, err := ListToArray(args[1])
-			if err != nil {
-				return SexpNull, fmt.Errorf("error converting "+
-					"msgmap arguments to an array: '%v'", err)
+			var arr []Sexp
+			var err error
+			if len(args) > 1 {
+				arr, err = ListToArray(args[1])
+				if err != nil {
+					return SexpNull, fmt.Errorf("error converting "+
+						"'%s' arguments to an array: '%v'", name, err)
+				}
+			} else {
+				arr = args[1:]
 			}
 			switch nm := args[0].(type) {
 			case SexpStr:
-				return MakeHash(arr, string(nm), env)
+				return MakeHash(arr, nm.S, env)
 			case SexpSymbol:
 				return MakeHash(arr, nm.name, env)
 			default:
-				return MakeHash(arr, "msgmap", env)
+				return MakeHash(arr, name, env)
 			}
 		}
 	}
@@ -708,7 +742,7 @@ func SymnumFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 
 	switch t := args[0].(type) {
 	case SexpSymbol:
-		return SexpInt(t.number), nil
+		return &SexpInt{Val: int64(t.number)}, nil
 	}
 	return SexpNull, errors.New("argument must be symbol")
 }
@@ -734,6 +768,12 @@ func MakeUserFunction(name string, ufun GlispUserFunction) *SexpFunction {
 	sfun.user = true
 	sfun.userfun = ufun
 	return &sfun
+}
+
+func MakeBuilderFunction(name string, ufun GlispUserFunction) *SexpFunction {
+	sfun := MakeUserFunction(name, ufun)
+	sfun.isBuilder = true
+	return sfun
 }
 
 // MergeFuncMap returns the union of the two given maps
@@ -788,7 +828,7 @@ func CoreFunctions() map[string]GlispUserFunction {
 		"mod":        BinaryIntFunction,
 		"+":          NumericFunction,
 		"-":          NumericFunction,
-		"*":          NumericFunction,
+		"*":          PointerOrNumericFunction,
 		"**":         NumericFunction,
 		"/":          NumericFunction,
 		"bit-and":    BitwiseFunction,
@@ -802,7 +842,7 @@ func CoreFunctions() map[string]GlispUserFunction {
 		"rest":       RestFunction,
 		"car":        FirstFunction,
 		"cdr":        RestFunction,
-		"type":       TypeQueryFunction,
+		"type?":      TypeQueryFunction,
 		"list?":      TypeQueryFunction,
 		"null?":      TypeQueryFunction,
 		"array?":     TypeQueryFunction,
@@ -832,6 +872,8 @@ func CoreFunctions() map[string]GlispUserFunction {
 		"len":        LenFunction,
 		"append":     AppendFunction,
 		"concat":     ConcatFunction,
+		"field":      ConstructorFunction,
+		"struct":     ConstructorFunction,
 		"array":      ConstructorFunction,
 		"list":       ConstructorFunction,
 		"hash":       ConstructorFunction,
@@ -841,11 +883,13 @@ func CoreFunctions() map[string]GlispUserFunction {
 		"flatten":    FlattenToWordsFunction,
 		"quotelist":  QuoteListFunction,
 		"=":          AssignmentFunction,
+		":=":         AssignmentFunction,
 		"fieldls":    GoFieldListFunction,
 		"defined?":   DefinedFunction,
 		"stop":       StopFunction,
 		"joinsym":    JoinSymFunction,
 		"GOOS":       GOOSFunction,
+		"&":          AddressOfFunction,
 	}
 }
 
@@ -896,6 +940,7 @@ func SystemFunctions() map[string]GlispUserFunction {
 		"exit":      ExitFunction,
 		"_closdump": DumpClosureEnvFunction,
 		"rmsym":     RemoveSymFunction,
+		"typelist":  TypeListFunction,
 		// not done "_call":     CallZMethodOnRecordFunction,
 	}
 }
@@ -905,12 +950,12 @@ func ThreadMapFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		return SexpNull, WrongNargs
 	}
 
-	h, isHash := args[0].(SexpHash)
+	h, isHash := args[0].(*SexpHash)
 	if !isHash {
 		return SexpNull, fmt.Errorf("-> error: first argument must be a hash or defmap")
 	}
 
-	field, err := threadingHelper(env, &h, args[1:])
+	field, err := threadingHelper(env, h, args[1:])
 	if err != nil {
 		return SexpNull, err
 	}
@@ -928,13 +973,13 @@ func threadingHelper(env *Glisp, hash *SexpHash, args []Sexp) (Sexp, error) {
 			args[0].SexpString())
 	}
 	if len(args) > 1 {
-		h, isHash := field.(SexpHash)
+		h, isHash := field.(*SexpHash)
 		if !isHash {
 			return SexpNull, fmt.Errorf("request for field '%s' was "+
 				"not on a hash or defmap; instead type %T with value '%#v'",
 				args[1].SexpString(), field, field)
 		}
-		return threadingHelper(env, &h, args[1:])
+		return threadingHelper(env, h, args[1:])
 	}
 	return field, nil
 }
@@ -944,7 +989,7 @@ func StringifyFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		return SexpNull, WrongNargs
 	}
 
-	return SexpStr(args[0].SexpString()), nil
+	return SexpStr{S: args[0].SexpString()}, nil
 }
 
 func Sym2StrFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
@@ -954,7 +999,7 @@ func Sym2StrFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 
 	switch t := args[0].(type) {
 	case SexpSymbol:
-		r := SexpStr(t.name)
+		r := SexpStr{S: t.name}
 		return r, nil
 	}
 	return SexpNull, errors.New("argument must be symbol")
@@ -967,7 +1012,7 @@ func Str2SymFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 
 	switch t := args[0].(type) {
 	case SexpStr:
-		return env.MakeSymbol(string(t)), nil
+		return env.MakeSymbol(t.S), nil
 	}
 	return SexpNull, errors.New("argument must be string")
 }
@@ -980,7 +1025,7 @@ func GensymFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	case n == 1:
 		switch t := args[0].(type) {
 		case SexpStr:
-			return env.GenSymbol(string(t)), nil
+			return env.GenSymbol(t.S), nil
 		}
 		return SexpNull, errors.New("argument must be string")
 	default:
@@ -993,8 +1038,8 @@ func ExitFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		return SexpNull, WrongNargs
 	}
 	switch e := args[0].(type) {
-	case SexpInt:
-		os.Exit(int(e))
+	case *SexpInt:
+		os.Exit(int(e.Val))
 	}
 	return SexpNull, errors.New("argument must be int (the exit code)")
 }
@@ -1006,9 +1051,9 @@ func GenericAccessFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	}
 
 	switch args[0].(type) {
-	case SexpHash:
+	case *SexpHash:
 		return HashAccessFunction(env, name, args)
-	case SexpArray:
+	case *SexpArray:
 		return ArrayAccessFunction(env, name, args)
 	}
 	return SexpNull, errors.New("first argument of to hget function must be hash or array")
@@ -1028,7 +1073,7 @@ func StopFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 
 	switch s := args[0].(type) {
 	case SexpStr:
-		return SexpNull, fmt.Errorf(string(s))
+		return SexpNull, fmt.Errorf(s.S)
 	}
 	return SexpNull, stopErr
 }
@@ -1036,11 +1081,11 @@ func StopFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 // the assignment function, =
 func AssignmentFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	Q("\n AssignmentFunction called with name ='%s'. args='%s'\n", name,
-		SexpArray(args).SexpString())
+		(&SexpArray{Val: args}).SexpString())
 
 	narg := len(args)
 	if narg != 2 {
-		return SexpNull, fmt.Errorf("assignment with '=' requires 2 args: lhs and rhs")
+		return SexpNull, fmt.Errorf("assignment requires two arguments: a left-hand-side and a right-hand-side argument")
 	}
 
 	var sym SexpSymbol
@@ -1048,7 +1093,7 @@ func AssignmentFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	case SexpSymbol:
 		sym = s
 	default:
-		return SexpNull, fmt.Errorf("assignment with '=' needs left-hand-side"+
+		return SexpNull, fmt.Errorf("assignment needs left-hand-side"+
 			" argument to be a symbol; we got %T", s)
 	}
 
@@ -1090,8 +1135,8 @@ func JoinSymFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 
 		case SexpSymbol:
 			j = j + a.name
-		case SexpArray:
-			s, err := joinSymHelper(a)
+		case *SexpArray:
+			s, err := joinSymHelper(a.Val)
 			if err != nil {
 				return SexpNull, err
 			}
@@ -1148,7 +1193,7 @@ func QuoteListFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 // if setVal is nil, only get and return the lookup.
 func dotGetSetHelper(env *Glisp, name string, setVal *Sexp) (Sexp, error) {
 	path := DotPartsRegex.FindAllString(name, -1)
-	//P("\n in dotGetSetHelper(), path = '%#v'\n", path)
+	//Q("\n in dotGetSetHelper(), path = '%#v'\n", path)
 	if len(path) == 0 {
 		return SexpNull, fmt.Errorf("internal error: DotFunction" +
 			" path had zero length")
@@ -1164,7 +1209,7 @@ func dotGetSetHelper(env *Glisp, name string, setVal *Sexp) (Sexp, error) {
 		asym := env.MakeSymbol(a)
 
 		// check conflict
-		//P("asym = %#v\n", asym)
+		//Q("asym = %#v\n", asym)
 		builtin, typ := env.IsBuiltinSym(asym)
 		if builtin {
 			return SexpNull, fmt.Errorf("'%s' is a %s, cannot assign to it with dot-symbol", asym.name, typ)
@@ -1181,7 +1226,7 @@ func dotGetSetHelper(env *Glisp, name string, setVal *Sexp) (Sexp, error) {
 	// the first
 
 	key := path[0][1:] // strip off the dot
-	//P("\n in dotGetSetHelper(), looking up '%s'\n", key)
+	//Q("\n in dotGetSetHelper(), looking up '%s'\n", key)
 	ret, err, _ = env.LexicalLookupSymbol(env.MakeSymbol(key), false)
 	if err != nil {
 		Q("\n in dotGetSetHelper(), '%s' not found\n", key)
@@ -1196,14 +1241,14 @@ func dotGetSetHelper(env *Glisp, name string, setVal *Sexp) (Sexp, error) {
 	// where .b and after
 	// will index into hashes (.a must refer to a hash);
 	// proceed deeper into the hashes.
-	h, isHash := ret.(SexpHash)
+	h, isHash := ret.(*SexpHash)
 	if !isHash {
 		return SexpNull, fmt.Errorf("not a record: cannot get "+
 			"field '%s' in non-record (instead of type %T)",
 			path[1][1:], ret)
 	}
 	// have hash: rest of path handled in hashutils.go in nestedPathGet()
-	//P("\n in dotGetSetHelper(), about to call nestedPathGetSet() with"+
+	//Q("\n in dotGetSetHelper(), about to call nestedPathGetSet() with"+
 	//	"dotpaths = path[i+1:]='%#v\n", path[1:])
 	exp, err := h.nestedPathGetSet(env, path[1:], setVal)
 	if err != nil {
@@ -1232,7 +1277,7 @@ func GOOSFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	if narg != 0 {
 		return SexpNull, WrongNargs
 	}
-	return SexpStr(runtime.GOOS), nil
+	return SexpStr{S: runtime.GOOS}, nil
 }
 
 // check is a symbol/string/value is defined
@@ -1245,18 +1290,36 @@ func DefinedFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 	var checkme string
 	switch nm := args[0].(type) {
 	case SexpStr:
-		checkme = string(nm)
+		checkme = nm.S
 	case SexpSymbol:
 		checkme = nm.name
 	case *SexpFunction:
-		return SexpBool(true), nil
+		return SexpBool{Val: true}, nil
 	default:
-		return SexpBool(false), nil
+		return SexpBool{Val: false}, nil
 	}
 
 	_, err, _ := env.LexicalLookupSymbol(env.MakeSymbol(checkme), false)
 	if err != nil {
-		return SexpBool(false), nil
+		return SexpBool{Val: false}, nil
 	}
-	return SexpBool(true), nil
+	return SexpBool{Val: true}, nil
+}
+
+func AddressOfFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
+	narg := len(args)
+	if narg != 1 {
+		return SexpNull, WrongNargs
+	}
+
+	return NewSexpPointer(args[0], args[0].Type()), nil
+	/*
+		        // structs only version:
+				switch a := args[0].(type) {
+				case *SexpHash:
+					return NewSexpPointer(a, a.Type()), nil
+				}
+
+				return SexpNull, fmt.Errorf("cannot take address of argument '%s'", args[0].SexpString())
+	*/
 }

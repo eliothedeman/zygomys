@@ -227,18 +227,18 @@ func (c CallInstr) Execute(env *Glisp) error {
 	if err != nil {
 		return err
 	}
-	//P("\n in CallInstr, after looking up c.sym='%s', got funcobj='%v'. datastack is:\n", c.sym.name, funcobj.SexpString())
+	//Q("\n in CallInstr, after looking up c.sym='%s', got funcobj='%v'. datastack is:\n", c.sym.name, funcobj.SexpString())
 	//env.datastack.PrintStack()
 	switch f := funcobj.(type) {
 	case SexpSymbol:
 		// is it a dot-symbol call?
-		//P("\n in CallInstr, found symbol\n")
+		//Q("\n in CallInstr, found symbol\n")
 		if c.sym.isDot {
 
 			dotSymRef, dotLookupErr := dotGetSetHelper(env, c.sym.name, nil)
 
 			// are we a value request (no further args), or a fuction/method call?
-			//P("\n in CallInstr, found dot-symbol\n")
+			//Q("\n in CallInstr, found dot-symbol\n")
 			if c.nargs == 0 {
 				// value request
 				if dotLookupErr != nil {
@@ -259,13 +259,13 @@ func (c CallInstr) Execute(env *Glisp) error {
 				top := expressions[0]
 				switch ftop := top.(type) {
 				case *SexpFunction:
-					//P("\n in CallInstr, fetched out function call from top of datastack.\n")
+					//Q("\n in CallInstr, fetched out function call from top of datastack.\n")
 					indirectFuncName = ftop
 					if ftop.user {
-						//P("\n in CallInstr, with user func, passing dot-symbol in directly so assignment will work.\n")
+						//Q("\n in CallInstr, with user func, passing dot-symbol in directly so assignment will work.\n")
 						env.datastack.PushExpr(c.sym)
 					} else {
-						//P("\n in CallInstr, with sexp func, dereferencing dot-symbol '%s' -> '%s'\n", c.sym.name, dotSymRef.SexpString())
+						//Q("\n in CallInstr, with sexp func, dereferencing dot-symbol '%s' -> '%s'\n", c.sym.name, dotSymRef.SexpString())
 						if dotLookupErr != nil {
 							return dotLookupErr
 						}
@@ -275,7 +275,7 @@ func (c CallInstr) Execute(env *Glisp) error {
 					for j := range pushme {
 						env.datastack.PushExpr(pushme[j])
 					}
-					//P("\n in CallInstr, after setting up stack for dot-symbol call, datastack:\n")
+					//Q("\n in CallInstr, after setting up stack for dot-symbol call, datastack:\n")
 					//env.datastack.PrintStack()
 
 				default:
@@ -314,6 +314,20 @@ func (c CallInstr) Execute(env *Glisp) error {
 		}
 		_, err := env.CallUserFunction(f, c.sym.name, c.nargs)
 		return err
+
+	case *RegisteredType:
+		if f.Constructor == nil {
+			env.pc++
+			res, err := baseConstruct(env, f, c.nargs)
+			if err != nil {
+				return err
+			}
+			env.datastack.PushExpr(res)
+			return nil
+		}
+		Q("call instruction for RegisteredType!")
+		_, err := env.CallUserFunction(f.Constructor, c.sym.name, c.nargs)
+		return err
 	}
 	return errors.New(fmt.Sprintf("%s is not a function", c.sym.name))
 }
@@ -338,6 +352,19 @@ func (d DispatchInstr) Execute(env *Glisp) error {
 			return env.CallFunction(f, d.nargs)
 		}
 		_, err := env.CallUserFunction(f, f.name, d.nargs)
+		return err
+	}
+	// allow ([] int64) to express slice of int64.
+	switch arr := funcobj.(type) {
+	case *SexpArray:
+		if len(arr.Val) == 0 {
+			_, err := env.CallUserFunction(sxSliceOf, funcobj.SexpString(), d.nargs)
+			return err
+		}
+		// call along with the array as an argument so we know the size of the
+		// array / matrix / tensor to make. The 2nd argument will be the dimension array.
+		env.datastack.PushExpr(arr)
+		_, err := env.CallUserFunction(sxArrayOf, funcobj.SexpString(), d.nargs+1)
 		return err
 	}
 	return fmt.Errorf("not a function on top of datastack: '%T/%#v'", funcobj, funcobj)
@@ -510,7 +537,7 @@ func (s VectorizeInstr) Execute(env *Glisp) error {
 		}
 		vec = append([]Sexp{expr}, vec...)
 	}
-	env.datastack.PushExpr(SexpArray(vec))
+	env.datastack.PushExpr(&SexpArray{Val: vec})
 	env.pc++
 	return nil
 }

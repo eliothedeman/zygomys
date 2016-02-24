@@ -19,7 +19,7 @@ func SimpleSourceFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		return SexpNull, fmt.Errorf("-> error: first argument be a string")
 	}
 
-	file := string(src)
+	file := src.S
 	if !FileExists(file) {
 		return SexpNull, fmt.Errorf("path '%s' does not exist", file)
 	}
@@ -109,8 +109,8 @@ func SourceFileFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 
 	sourceItem = func(item Sexp) error {
 		switch t := item.(type) {
-		case SexpArray:
-			for _, v := range t {
+		case *SexpArray:
+			for _, v := range t.Val {
 				if err := sourceItem(v); err != nil {
 					return err
 				}
@@ -128,7 +128,7 @@ func SourceFileFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 			var f *os.File
 			var err error
 
-			if f, err = os.Open(string(t)); err != nil {
+			if f, err = os.Open(t.S); err != nil {
 				return err
 			}
 			defer f.Close()

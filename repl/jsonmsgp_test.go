@@ -60,8 +60,8 @@ type Event struct {
 		sexp, err := GoToSexp(iface, env)
 		panicOn(err)
 		// must get into same order to have sane comparison, so borrow the KeyOrder to be sure.
-		ko := sexp.(SexpHash).KeyOrder
-		*ko = *x.(SexpHash).KeyOrder
+		hhh := sexp.(*SexpHash)
+		hhh.KeyOrder = x.(*SexpHash).KeyOrder
 		sexpStr := sexp.SexpString()
 		expectedSexpr := ` (event-demo id:123 user: (person-demo first:"Liz" last:"C") flight:"AZD234" pilot:["Roger" "Ernie"])`
 		cv.So(sexpStr, cv.ShouldResemble, expectedSexpr)
@@ -117,14 +117,15 @@ type Event struct {
 		default:
 			err = fmt.Errorf("value must be a hash or defmap")
 			panic(err)
-		case SexpHash:
-			tn := *(asHash.TypeName)
-			factory, hasMaker := GostructRegistry[tn]
+		case *SexpHash:
+			tn := asHash.TypeName
+			factory, hasMaker := GoStructRegistry.Registry[tn]
 			if !hasMaker {
-				err = fmt.Errorf("type '%s' not registered in GostructRegistry", tn)
+				err = fmt.Errorf("type '%s' not registered in GoStructRegistry", tn)
 				panic(err)
 			}
-			newStruct := factory.Factory(env)
+			newStruct, err := factory.Factory(env)
+			panicOn(err)
 
 			// What didn't work here was going through msgpack, because
 			// ugorji msgpack encode will write turn signed ints into unsigned ints,
@@ -133,7 +134,7 @@ type Event struct {
 			jsonBytes := []byte(SexpToJson(asHash))
 
 			jsonDecoder := json.NewDecoder(bytes.NewBuffer(jsonBytes))
-			err := jsonDecoder.Decode(newStruct)
+			err = jsonDecoder.Decode(newStruct)
 			switch err {
 			case io.EOF:
 			case nil:

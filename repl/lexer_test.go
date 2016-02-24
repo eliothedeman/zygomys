@@ -58,7 +58,7 @@ func Test025LexingOfStringAtomsAndSymbols(t *testing.T) {
 			// and possibly later allow for shell style substitution,
 			// so it is always its own token/symbol, and should be accepted.
 			symbolNotOkay := []string{`~`, `@`, `(`, `)`, `[`, `]`, `{`, `}`, `'`, `#`,
-				`:`, `^`, `\`, `|`, `%`, `"`, `;`}
+				`:`, `^`, `\`, `|`, `%`, `"`, `;`, `,`}
 			// NB: have to allow  `a.b` and `a.b.` or else file paths,
 			// used as arguments in macro (req) for example, won't
 			// get lexed into symbols.
@@ -81,7 +81,7 @@ func Test025LexingOfStringAtomsAndSymbols(t *testing.T) {
 			//dotSymbolRegex := regexp.MustCompile(reg)
 
 			dotSymbolNotOkay := []string{`~`, `@`, `(`, `)`, `[`, `]`, `{`, `}`, `'`, `#`,
-				`:`, `^`, `\`, `|`, `%`, `"`, `;`, `.9`, `.a.`, `.a.b.`, `..`, `...`}
+				`:`, `^`, `\`, `|`, `%`, `"`, `;`, `.9`, `.a.`, `.a.b.`, `..`, `...`, `,`}
 
 			//okay := []string{`..`, `a.b`, `-`, `a-b`, `*a-b*`, `$`, `&`, `.`, `.method`}
 			dotSymbolOkay := []string{`.`, `.h`, `.method`, `.a.b`, `.a.b.c`}
@@ -130,7 +130,7 @@ func Test030LexingPauseAndResume(t *testing.T) {
 
 		P("\n In lexer_test, after parsing with incomplete input, we should get 0 expressions back.\n")
 		cv.So(len(ex), cv.ShouldEqual, 0)
-		P("\n In lexer_test, after ParseTokens on incomplete fragment, expressions = '%v' and err = '%v'\n", SexpArray(ex).SexpString(), err)
+		P("\n In lexer_test, after ParseTokens on incomplete fragment, expressions = '%v' and err = '%v'\n", (&SexpArray{Val: ex}).SexpString(), err)
 
 		P("\n In lexer_test: calling parser.NewInput() to provide str2='%s'\n", str2)
 		env.parser.NewInput(bytes.NewBuffer([]byte(str2)))
@@ -140,7 +140,7 @@ func Test030LexingPauseAndResume(t *testing.T) {
  in lexer test: After providing the 2nd half of the input, we returned from env.parser.ParseTokens()
  with expressions = %v
  with err = %v
-`, SexpArray(ex).SexpString(), err)
+`, (&SexpArray{Val: ex}).SexpString(), err)
 
 		cv.So(len(ex), cv.ShouldEqual, 1)
 		panicOn(err)

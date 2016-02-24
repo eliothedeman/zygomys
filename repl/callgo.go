@@ -13,7 +13,7 @@ import (
 // args[1] is a hash representing a method call on that struct.
 // The returned Sexp is a hash that represents the result of that call.
 func CallGoMethodFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
-	VPrintf("_method user func running!\n")
+	Q("_method user func running!\n")
 
 	// protect against bad calls/bad reflection
 	var wasPanic bool
@@ -34,7 +34,7 @@ func CallGoMethodFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		if narg < 2 {
 			return SexpNull, WrongNargs
 		}
-		obj, isHash := args[0].(SexpHash)
+		obj, isHash := args[0].(*SexpHash)
 		if !isHash {
 			return SexpNull, fmt.Errorf("_method error: first argument must be a hash or defmap (a record) with an attached GoObject")
 		}
@@ -44,13 +44,13 @@ func CallGoMethodFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		case SexpSymbol:
 			methodname = m.name
 		case SexpStr:
-			methodname = string(m)
+			methodname = m.S
 		default:
 			return SexpNull, fmt.Errorf("_method error: second argument must be a method name in symbol or string form (got %T)", args[1])
 		}
 
 		// get the method list, verify the method exists and get its type
-		if *obj.NumMethod == -1 {
+		if obj.NumMethod == -1 {
 			err := obj.SetMethodList(env)
 			if err != nil {
 				return SexpNull, fmt.Errorf("could not get method list for object: %s", err)
@@ -59,7 +59,7 @@ func CallGoMethodFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 
 		var method reflect.Method
 		found := false
-		for _, me := range *obj.GoMethods {
+		for _, me := range obj.GoMethods {
 			if me.Name == methodname {
 				method = me
 				found = true
@@ -69,7 +69,7 @@ func CallGoMethodFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		if !found {
 			return SexpNull, fmt.Errorf("no such method '%s' on %s. choices are: %s",
 				methodname, obj.TypeName,
-				(*obj.GoMethSx).SexpString())
+				(obj.GoMethSx).SexpString())
 		}
 		// INVAR: var method holds our call target
 
@@ -79,7 +79,7 @@ func CallGoMethodFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 			return SexpNull, fmt.Errorf("error converting object to Go struct: '%s'", err)
 		}
 
-		inputVa := []reflect.Value{(*obj.GoShadowStructVa)}
+		inputVa := []reflect.Value{(obj.GoShadowStructVa)}
 
 		// prep args.
 		needed := method.Type.NumIn() - 1 // one for the receiver
@@ -94,7 +94,7 @@ func CallGoMethodFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 			typ := method.Type.In(i - 1)
 			pdepth := PointerDepth(typ)
 			// we only handle 0 and 1 for now
-			VPrintf("pdepth = %v\n", pdepth)
+			Q("pdepth = %v\n", pdepth)
 			switch pdepth {
 			case 0:
 				va = reflect.New(typ)
@@ -105,7 +105,7 @@ func CallGoMethodFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 				return SexpNull, fmt.Errorf("error converting %d-th argument to "+
 					"Go: we don't handles double pointers", i-2)
 			}
-			VPrintf("converting to go '%#v' into -> %#v\n", args[i], va.Interface())
+			Q("converting to go '%#v' into -> %#v\n", args[i], va.Interface())
 			iface, err := SexpToGoStructs(args[i], va.Interface(), env)
 			if err != nil {
 				return SexpNull, fmt.Errorf("error converting %d-th "+
@@ -117,10 +117,10 @@ func CallGoMethodFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 			case 1:
 				inputVa = append(inputVa, reflect.ValueOf(iface))
 			}
-			VPrintf("\n allocated new %T/val=%#v /i=%#v\n", va, va, va.Interface())
+			Q("\n allocated new %T/val=%#v /i=%#v\n", va, va, va.Interface())
 		}
 
-		VPrintf("_method: about to .Call by reflection!\n")
+		Q("_method: about to .Call by reflection!\n")
 
 		out := method.Func.Call(inputVa)
 
@@ -128,7 +128,8 @@ func CallGoMethodFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 		for _, o := range out {
 			iout = append(iout, o.Interface())
 		}
-		VPrintf("done with _method call, iout = %#v\n", iout)
+		Q("done with _method call, iout = %#v\n", iout)
+		Q("done with _method call, iout[0] = %#v\n", iout[0])
 
 		nout := len(out)
 		r := make([]Sexp, 0)
@@ -138,31 +139,38 @@ func CallGoMethodFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 			case nil:
 				r = append(r, SexpNull)
 			case int64:
-				r = append(r, SexpInt(e))
+				r = append(r, &SexpInt{Val: e})
 			case int:
-				r = append(r, SexpInt(e))
+				r = append(r, &SexpInt{Val: int64(e)})
 			case error:
 				r = append(r, SexpError{e})
 			case string:
-				r = append(r, SexpStr(e))
+				r = append(r, SexpStr{S: e})
 			case float64:
-				r = append(r, SexpFloat(e))
+				r = append(r, SexpFloat{Val: e})
 			case []byte:
-				r = append(r, SexpRaw(e))
+				r = append(r, SexpRaw{Val: e})
 			case rune:
-				r = append(r, SexpChar(e))
+				r = append(r, SexpChar{Val: e})
 			default:
 				// go through the type registry
 				found := false
-				for hashName, factory := range GostructRegistry {
-					st := factory.Factory(env)
+				for hashName, factory := range GoStructRegistry.Registry {
+					st, err := factory.Factory(env)
+					if err != nil {
+						return SexpNull, fmt.Errorf("MakeHash '%s' problem on Factory call: %s",
+							hashName, err)
+					}
+					Q("got st from Factory, checking if types match")
 					if reflect.ValueOf(st).Type() == out[i].Type() {
-						retHash, err := MakeHash([]Sexp{}, hashName, env)
+						Q("types match")
+						retHash, err := MakeHash([]Sexp{}, factory.RegisteredName, env)
 						if err != nil {
 							return SexpNull, fmt.Errorf("MakeHash '%s' problem: %s",
 								hashName, err)
 						}
 
+						Q("filling from shadow")
 						err = retHash.FillHashFromShadow(env, f)
 						if err != nil {
 							return SexpNull, err
@@ -177,7 +185,7 @@ func CallGoMethodFunction(env *Glisp, name string, args []Sexp) (Sexp, error) {
 				}
 			}
 		}
-		return SexpArray(r), nil
+		return &SexpArray{Val: r}, nil
 	}()
 	if wasPanic {
 		return SexpNull, fmt.Errorf("\n recovered from panic "+

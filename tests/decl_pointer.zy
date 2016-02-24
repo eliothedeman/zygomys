@@ -1,0 +1,3 @@
+;; should be okay taking pointer to record
+(def f (* (* (slice-of snoopy))))
+(assert (== (str f) `(* (* ([]snoopy)))`))

@@ -11,6 +11,9 @@ type SexpGoroutine struct {
 func (goro SexpGoroutine) SexpString() string {
 	return "[coroutine]"
 }
+func (goro SexpGoroutine) Type() *RegisteredType {
+	return nil // TODO what goes here
+}
 
 func StartGoroutineFunction(env *Glisp, name string,
 	args []Sexp) (Sexp, error) {
@@ -35,7 +38,7 @@ func CreateGoroutineMacro(env *Glisp, name string,
 	// (apply StartGoroutineFunction [goro])
 	return MakeList([]Sexp{env.MakeSymbol("apply"),
 		MakeUserFunction("__start", StartGoroutineFunction),
-		SexpArray([]Sexp{goro})}), nil
+		&SexpArray{Val: []Sexp{goro}}}), nil
 }
 
 func (env *Glisp) ImportGoroutines() {

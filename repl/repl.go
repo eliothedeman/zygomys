@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"encoding/gob"
 	"fmt"
+	"io"
 	"os"
 	"runtime/pprof"
+	"strconv"
 	"strings"
 )
 
@@ -111,7 +113,7 @@ func (pr *Prompter) getExpressionWithLiner(env *Glisp) (readin string, xs []Sexp
 		switch err {
 		case nil:
 			line += "\n" + nextline
-			Q("no problem parsing line '%s' into '%s', proceeding...\n", line, SexpArray(x).SexpString())
+			Q("no problem parsing line '%s' into '%s', proceeding...\n", line, (&SexpArray{Val: x}).SexpString())
 			return line, xs, nil
 		case ResetRequested:
 			continue
@@ -162,7 +164,11 @@ func Repl(env *Glisp, cfg *GlispConfig) {
 		//Q("\n exprsInput(%d) = '%v'\n line = '%s'\n", len(exprsInput), SexpArray(exprsInput).SexpString(), line)
 		if err != nil {
 			fmt.Println(err)
-			os.Exit(-1)
+			if err == io.EOF {
+				os.Exit(0)
+			}
+			env.Clear()
+			continue
 		}
 
 		parts := strings.Split(line, " ")
@@ -259,7 +265,11 @@ func Repl(env *Glisp, cfg *GlispConfig) {
 			// try to print strings more elegantly!
 			switch e := expr.(type) {
 			case SexpStr:
-				fmt.Printf("`%s`\n", e)
+				if e.backtick {
+					fmt.Printf("`%s`\n", e.S)
+				} else {
+					fmt.Printf("%s\n", strconv.Quote(e.S))
+				}
 			default:
 				fmt.Println(expr.SexpString())
 			}
@@ -278,6 +288,9 @@ func runScript(env *Glisp, fname string, cfg *GlispConfig) {
 	err = env.LoadFile(file)
 	if err != nil {
 		fmt.Println(err)
+		if cfg.ExitOnFailure {
+			os.Exit(-1)
+		}
 		return
 	}
 
@@ -302,8 +315,10 @@ func runScript(env *Glisp, fname string, cfg *GlispConfig) {
 }
 
 func (env *Glisp) StandardSetup() {
+	env.ImportBaseTypes()
 	env.ImportEval()
 	env.ImportTime()
+	env.ImportPackageBuilder()
 	env.ImportMsgpackMap()
 
 	defmap := `(defmac defmap [name] ^(defn ~name [& rest] (msgmap (quote ~name) rest)))`
@@ -368,14 +383,18 @@ func (env *Glisp) StandardSetup() {
 	gob.Register(SexpArray{})
 
 	// create constructors for each of our pre-registered Go struct types
-	for name, fac := range GostructRegistry {
-		strct := fac.Factory(env)
-		gob.Register(strct)
-		makeRec := fmt.Sprintf(`(defmap %s)`, name)
-		_, err = env.EvalString(makeRec)
-		panicOn(err)
-	}
-
+	/*
+		for name, fac := range GoStructRegistry.Registry {
+			strct, err := fac.Factory(env)
+			panicOn(err)
+			if false fac.GenDefMap {
+				gob.Register(strct)
+				makeRec := fmt.Sprintf(`(defmap %s)`, name)
+				_, err = env.EvalString(makeRec)
+			}
+			panicOn(err)
+		}
+	*/
 }
 
 // like main() for a standalone repl, now in library

@@ -126,7 +126,57 @@ func (stack *Stack) LookupSymbolUntilFunction(sym SexpSymbol) (Sexp, error, *Sco
 func (stack *Stack) BindSymbol(sym SexpSymbol, expr Sexp) error {
 	if stack.IsEmpty() {
 		panic("empty stack!!")
-		return errors.New("no scope available")
+		//return errors.New("no scope available")
+	}
+	cur, already := stack.elements[stack.tos].(*Scope).Map[sym.number]
+	if already {
+		Q("BindSymbol already sees symbol %v, currently bound to '%v'", sym.name, cur.SexpString())
+
+		lhsTy := cur.Type()
+		rhsTy := expr.Type()
+		if lhsTy == nil {
+			// for backcompat with closure.zy, just do the binding for now if the LHS isn't typed.
+			//return fmt.Errorf("left-hand-side had nil type")
+			// TODO: fix this? or require removal of previous symbol binding to avoid type errors?
+			stack.elements[stack.tos].(*Scope).Map[sym.number] = expr
+			return nil
+		}
+		if rhsTy == nil {
+			return fmt.Errorf("right-hand-side had nil type")
+		}
+
+		// both sides have type
+		Q("BindSymbol: both sides have type. rhs=%v, lhs=%v", rhsTy.SexpString(), lhsTy.SexpString())
+
+		if lhsTy == rhsTy {
+			Q("BindSymbol: YES types match exactly. Good.")
+			stack.elements[stack.tos].(*Scope).Map[sym.number] = expr
+			return nil
+		}
+
+		if rhsTy.UserStructDefn != nil && rhsTy.UserStructDefn != lhsTy.UserStructDefn {
+			return fmt.Errorf("cannot assign %v to %v", rhsTy.ShortName(), lhsTy.ShortName())
+		}
+
+		if lhsTy.UserStructDefn != nil && lhsTy.UserStructDefn != rhsTy.UserStructDefn {
+			return fmt.Errorf("cannot assign %v to %v", rhsTy.ShortName(), lhsTy.ShortName())
+		}
+
+		// TODO: problem with this implementation is that it may narrow the possible
+		// types assignments to this variable. To fix we'll need to keep around the
+		// type of the symbol in the symbol table, separately from the value currently
+		// bound to it.
+		if lhsTy.TypeCache != nil && rhsTy.TypeCache != nil {
+			if rhsTy.TypeCache.AssignableTo(lhsTy.TypeCache) {
+				Q("BindSymbol: YES: rhsTy.TypeCache (%v) is AssigntableTo(lhsTy.TypeCache) (%v). Good.", rhsTy.TypeCache, lhsTy.TypeCache)
+				stack.elements[stack.tos].(*Scope).Map[sym.number] = expr
+				return nil
+			}
+		}
+		Q("BindSymbol: at end, defaulting to deny")
+		return fmt.Errorf("cannot assign %v to %v", rhsTy.ShortName(), lhsTy.ShortName())
+	} else {
+		Q("BindSymbol: new symbol %v", sym.name)
 	}
 	stack.elements[stack.tos].(*Scope).Map[sym.number] = expr
 	return nil
@@ -135,7 +185,7 @@ func (stack *Stack) BindSymbol(sym SexpSymbol, expr Sexp) error {
 func (stack *Stack) DeleteSymbolFromTopOfStackScope(sym SexpSymbol) error {
 	if stack.IsEmpty() {
 		panic("empty stack!!")
-		return errors.New("no scope available")
+		//return errors.New("no scope available")
 	}
 	_, present := stack.elements[stack.tos].(*Scope).Map[sym.number]
 	if !present {
